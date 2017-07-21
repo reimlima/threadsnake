@@ -1,0 +1,186 @@
+#!/bin/bash
+
+#[ Script ]-------------------------------------------------------------------------------------------------#
+#                                                                                                           #
+# tsd                                                                                                       #
+#                                                                                                           #
+# PT-br:                                                                                                    #
+# script de init para iniciar o threadsnake como um daemon                                                  #
+#                                                                                                           #
+# ----------------------------                                                                              #
+#                                                                                                           #
+# EN:                                                                                                       #
+# init script to start threadsnake as a daemon                                                              #
+#                                                                                                           #
+# reimlima@gmail.com                                                                                        #
+# $Id: tsd,v 1 2017/07/19 reimlima Exp reimlima $                                                           #
+#                                                                                                           #
+#[ License ]------------------------------------------------------------------------------------------------#
+#                                                                                                           #
+# Copyright (c) 2017 Reinaldo Marques de Lima reimlima@gmail.com                                            #
+#                                                                                                           #
+# PT-br:                                                                                                    #
+# A  permissão  é  concedida, a título gratuito, a qualquer pessoa que obtenha uma   cópia deste software e #
+# arquivos de  documentação  associados (o "Software"), para lidar com o Software sem restrição, incluindo, #
+# sem limitação,  os  direitos  de  usar,  copiar,  modificar, mesclar, publicar, distribuir, sublicenciar, #
+# e / ou vender cópias do Software, e  permitir  que as  pessoas a  quem  o  Software  é fornecido o façam, #
+# sujeito às seguintes condições:                                                                           #
+#                                                                                                           #
+# O  aviso  de  copyright  acima e este aviso de permissão devem ser incluídos em todas as cópias ou partes #
+# substanciais do Software.                                                                                 #
+#                                                                                                           #
+# O  SOFTWARE  É  FORNECIDO  "COMO ESTÁ", SEM GARANTIA  DE QUALQUER TIPO, EXPRESSA OU IMPLÍCITA, INCLUINDO, #
+# SEM LIMITAÇÃO, AS GARANTIAS DE COMERCIALIZAÇÃO, ADEQUAÇÃO A UM DETERMINADO FIM E NÃO VIOLAÇÃO. EM  NENHUM #
+# CASO  OS  AUTORES  OU  DIREITOS  AUTORAIS TITULARES  SERÃO RESPONSÁVEIS POR QUALQUER RECLAMAÇÃO, DANOS OU #
+# OUTRAS RESPONSABILIDADES, SEJA EM UMA  AÇÃO DE CUMPRIMENTO DE CONTRATO  OU  DE  OUTRA  FORMA,  DECORRENTE #
+# DE, OU EM CONEXÃO COM O SOFTWARE OU O USO OU OUTRAS FUNÇÕES DO SOFTWARE.                                  #
+#                                                                                                           #
+# Exceto  conforme  contido  no  presente aviso, o nome do(s) dos detentores de direitos autorais acima não #
+# devem ser utilizados em publicidade ou de outra forma  para  promover  a venda, uso ou outras negociações #
+# deste Software sem autorização prévia por escrito.                                                        #
+#                                                                                                           #
+# ----------------------------                                                                              #
+#                                                                                                           #
+# EN:                                                                                                       #
+# Permission  is  hereby  granted, free  of  charge,  to  any  person obtaining a copy of this software and #
+# associated  documentation  files (the "Software"), to deal in the Software without restriction, including #
+# without  limitation  the  rights  to  use,  copy, modify, merge, publish, distribute, sublicense,  and/or #
+# sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to #
+#the following conditions:                                                                                  #
+#                                                                                                           #
+# The  above  copyright  notice  and  this permission notice shall be included in all copies or substantial #
+# portions of the Software.                                                                                 #
+#                                                                                                           #
+# THE  SOFTWARE  IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,  INCLUDING BUT NOT  #
+# LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS  FOR  A  PARTICULAR  PURPOSE AND  NONINFRINGEMENT.  #
+# IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS  BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER  LIABILITY, #
+# WHETHER  IN  AN  ACTION  OF  CONTRACT, TORT  OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE #
+#SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                                                     #
+#                                                                                                           #
+# Except  as  contained  in  this  notice,  the name(s) of the above copyright holders shall not be used in #
+# advertising  or  otherwise  to  promote  the  sale,  use or other dealings in this Software without prior #
+# written authorization.                                                                                    #
+#                                                                                                           #
+#-----------------------------------------------------------------------------------------------------------#
+
+export PATH="/bin/rm:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games"
+
+#[ Variables ]-----------------------------------------------------------------#
+
+RM=$(which rm)
+PS=$(which ps)
+CAT=$(which cat)
+AWK=$(which awk)
+KILL=$(which kill)
+GREP=$(which grep)
+THREADSNAKE=$(which threadsnake)
+SCRIPTNAME=$(basename $0)
+THREADSNAKEPIDFILE="/var/run/threadsnake/threadsnake.pid"
+
+#[ Functions ]-----------------------------------------------------------------#
+
+exiterrorfunc(){
+
+	EXITCODE=$(echo $@ | awk '{print $NF}')
+	EXITMESSAGE=$(echo $@ | awk '{ $NF = ""; print $0}')
+	echo "$EXITMESSAGE"
+	if [[ $OPTION = "restart" ]]; then
+		OPTION="" 
+		start
+	fi
+	exit $EXITCODE
+        
+}
+
+usage(){
+
+	exiterrorfunc "Usage: $0 {start|stop|restart|status} 1"
+
+}
+
+start(){
+
+	if [[ -e $THREADSNAKEPIDFILE ]] ; then # Se existe arquivo de PID
+		THREADSNAKEPID=$($CAT $THREADSNAKEPIDFILE)
+		THREADSNAKEPROC=$($PS -ef | $GREP threadsnake | $GREP -v $SCRIPTNAME | $GREP -v grep | $AWK '{print $2}')
+
+		if [[ "$THREADSNAKEPID" = "$THREADSNAKEPROC" ]]; then # Se o PID no arquivo e o processo rodando sao os mesmos...
+			exiterrorfunc "threadsnake is already running: [$THREADSNAKEPID] 1"
+		else # senao cospe o erro
+			exiterrorfunc "threadsnake is not running, but pid file exist: [$THREADSNAKEPIDFILE] 1"
+		fi
+	else # Se o arquivo nao existe
+		THREADSNAKEPROC=$($PS -ef | $GREP threadsnake | $GREP -v $SCRIPTNAME | $GREP -v grep | $AWK '{print $2}')
+
+		if [[ $THREADSNAKEPROC ]]; then # Se o arquivo nao existe, mas tem um processo ativo...
+			exiterrorfunc "pid file $THREADSNAKEPIDFILE does not exist, but there is a process alive: [$THREADSNAKEPROC] 1"
+		else # Se passou por todas excessoes acima, entao sobe o processo finalmente
+			( $THREADSNAKE & )
+			while [ ! -e $THREADSNAKEPIDFILE ] ; do
+				continue
+			done
+			THREADSNAKEPID=$($CAT $THREADSNAKEPIDFILE)
+			exiterrorfunc "threadsnake started: [$THREADSNAKEPID] 0"
+		fi
+	fi
+
+}
+
+stop(){
+
+	THREADSNAKEPROC=$($PS -ef | $GREP threadsnake | $GREP -v $SCRIPTNAME | $GREP -v grep | $AWK '{print $2}')
+	if [[ -e $THREADSNAKEPIDFILE ]] ; then # Se existe arquivo de PID
+		THREADSNAKEPID=$($CAT $THREADSNAKEPIDFILE)
+		if [[ "$THREADSNAKEPID" = "$THREADSNAKEPROC" ]]; then # Se o PID no arquivo e o processo rodando sao os mesmos...
+			$KILL -9 $THREADSNAKEPID
+			$RM -f $THREADSNAKEPIDFILE
+			exiterrorfunc "threadsnake stopped: [$THREADSNAKEPID] 0"
+		else
+			exiterrorfunc "threadsnake is not running, but pid file exist: [$THREADSNAKEPIDFILE] 1"
+		fi
+	elif [[ $THREADSNAKEPROC ]]; then # Se existe um processo, mas nao um arquivo PID
+		exiterrorfunc "there is a threadsnake process running without PID file 1"
+	else # senao nao esta rodando
+		exiterrorfunc "threadsnake is not running 0"
+	fi
+
+}
+
+status(){
+
+	THREADSNAKEPROC=$($PS -ef | $GREP threadsnake | $GREP -v $SCRIPTNAME | $GREP -v grep | $AWK '{print $2}')
+	if [[ -e $THREADSNAKEPIDFILE ]] ; then # Se existe arquivo de PID
+		THREADSNAKEPID=$($CAT $THREADSNAKEPIDFILE)
+		if [[ "$THREADSNAKEPID" = "$THREADSNAKEPROC" ]]; then # Se o PID no arquivo e o processo rodando sao os mesmos...
+			exiterrorfunc "threadsnake is running: [$THREADSNAKEPID] 0"
+		else
+			exiterrorfunc "threadsnake is not running, but pid file exist: [$THREADSNAKEPIDFILE] 1"
+		fi
+	elif [[ $THREADSNAKEPROC ]]; then # Se existe um processo, mas nao um arquivo PID
+		exiterrorfunc "there is a threadsnake process running without PID file 1"
+	else
+		exiterrorfunc "threadsnake is not running 0"
+	fi
+
+}
+
+restart(){
+
+	stop
+	sleep 1
+	start
+
+}
+
+#[ Validate command line option ]----------------------------------------------#
+
+[ $1 ] || usage
+OPTION=$1
+
+case $OPTION in
+	start   ) start;   ;;
+	stop    ) stop;    ;;
+	restart ) restart; ;;
+	status  ) status;  ;;
+	*       ) usage;   ;;
+esac

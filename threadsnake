@@ -1,0 +1,246 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+'''
+[ Script ]
+
+threadsnake: Microservice written in python
+
+reimlima@gmail.com
+$Id: tsd,v 1 2017/07/19 reimlima Exp reimlima $
+
+[ License ]
+
+The MIT License (MIT)
+
+Copyright (c) 2017 Reinaldo Marques de Lima reimlima@gmail.com
+
+PT-br:
+A  permissão  é  concedida, a título gratuito, a qualquer pessoa que obtenha uma   cópia deste software e
+arquivos de  documentação  associados (o "Software"), para lidar com o Software sem restrição, incluindo,
+sem limitação,  os  direitos  de  usar,  copiar,  modificar, mesclar, publicar, distribuir, sublicenciar,
+e / ou vender cópias do Software, e  permitir  que as  pessoas a  quem  o  Software  é fornecido o façam,
+sujeito às seguintes condições:
+
+O  aviso  de  copyright  acima e este aviso de permissão devem ser incluídos em todas as cópias ou partes
+substanciais do Software.
+
+O  SOFTWARE  É  FORNECIDO  "COMO ESTÁ", SEM GARANTIA  DE QUALQUER TIPO, EXPRESSA OU IMPLÍCITA, INCLUINDO,
+SEM LIMITAÇÃO, AS GARANTIAS DE COMERCIALIZAÇÃO, ADEQUAÇÃO A UM DETERMINADO FIM E NÃO VIOLAÇÃO. EM  NENHUM
+CASO  OS  AUTORES  OU  DIREITOS  AUTORAIS TITULARES  SERÃO RESPONSÁVEIS POR QUALQUER RECLAMAÇÃO, DANOS OU
+OUTRAS RESPONSABILIDADES, SEJA EM UMA  AÇÃO DE CUMPRIMENTO DE CONTRATO  OU  DE  OUTRA  FORMA,  DECORRENTE
+DE, OU EM CONEXÃO COM O SOFTWARE OU O USO OU OUTRAS FUNÇÕES DO SOFTWARE.
+
+Exceto  conforme  contido  no  presente aviso, o nome do(s) dos detentores de direitos autorais acima não
+devem ser utilizados em publicidade ou de outra forma  para  promover  a venda, uso ou outras negociações
+deste Software sem autorização prévia por escrito.
+
+----------------------------
+
+EN:
+Permission  is  hereby  granted, free  of  charge,  to  any  person obtaining a copy of this software and
+associated  documentation  files (the "Software"), to deal in the Software without restriction, including
+without  limitation  the  rights  to  use,  copy, modify, merge, publish, distribute, sublicense,  and/or
+sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The  above  copyright  notice  and  this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE  SOFTWARE  IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,  INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS  FOR  A  PARTICULAR  PURPOSE AND  NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS  BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER  LIABILITY,
+WHETHER  IN  AN  ACTION  OF  CONTRACT, TORT  OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Except  as  contained  in  this  notice,  the name(s) of the above copyright holders shall not be used in
+advertising  or  otherwise  to  promote  the  sale,  use or other dealings in this Software without prior
+written authorization.
+
+'''
+
+import os, re, sys, json, time, yaml, logging, sqlite3, socket
+from threading import Thread
+from os import curdir, sep, path
+from urlparse import urlparse, parse_qs
+from BaseHTTPServer import BaseHTTPRequestHandler,HTTPServer
+
+scriptName =  os.path.basename(sys.argv[0])
+
+# Handle with config file
+
+try:
+    config = yaml.load(open('threadsnake.yaml'))
+    portNumber = int(config['TS_PORT_NUMBER'])
+    logFile = config['TS_LOG_FILE']
+    pidFile = config['TS_PIDFILE']
+    sqliteDatabase = config['SL_DATABASE']
+    logging.basicConfig(
+        filename = logFile,
+        level    = logging.INFO,
+        format   = '%(message)s')
+    logger = logging.getLogger(__name__)
+except:
+    print "no config file found, exiting"
+    exit(1)
+
+def connectToDatabase(sqliteDatabase):
+
+    # Try to connect to SQLite
+
+    try:
+        tsSqliteConn = sqlite3.connect(sqliteDatabase)
+    except:
+        logger.info("- - - ["+ time.strftime("%d/%b/%Y %H:%M:%S") + "] \"no database found, creating\" - -")
+        createDatabase()
+
+    return tsSqliteConn
+
+def createDatabase():
+
+    # Create database if no exist
+
+    tsSqliteConn = connectToDatabase(sqliteDatabase)
+    cursor = tsSqliteConn.cursor()
+    cursor.execute(""" 
+    CREATE TABLE IF NOT EXISTS threadsnakedata (
+        id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER,
+        data TEXT
+    );
+    """)
+    return
+
+def searchDatabase(search, total, interval, sqliteDatabase):
+
+    # Search in database with given "query string"
+
+    tsSqliteConn = connectToDatabase(sqliteDatabase)
+    cursor = tsSqliteConn.cursor()
+    timeend = int(time.time())
+
+    if re.match(r"[0-9]{1,}d", interval):
+        limit = int(re.sub('d','', interval))
+        timeinit = (timeend-(24*(60*(60*limit))))
+    elif re.match(r"[0-9]{1,}h", interval):
+        limit = int(re.sub('h','', interval))
+        timeinit = (timeend-(60*(60*limit)))
+    elif re.match(r"[0-9]{1,}m", interval):
+        limit = int(re.sub('m','', interval))
+        timeinit = (timeend-(60*limit))
+    else:
+        search = "*"
+        total = 1
+        timeinit = (timeend-300)
+        
+    cursor.execute("""SELECT data FROM threadsnakedata WHERE data LIKE ? AND timestamp BETWEEN ? AND ? LIMIT ?""", ('%' + search + '%', timeinit, timeend, total))
+    return cursor.fetchall()
+
+class myMicroservice(BaseHTTPRequestHandler):
+
+    # Start serving
+
+    def log_message(self, format, *args):
+        internalDate = str(time.strftime("%d/%b/%Y %H:%M:%S"))
+        logger.info("%s - - [%s] %s" %
+        (self.address_string(),
+        internalDate,
+        format%args))
+
+    def do_GET(self):
+        showContent = False
+        message = ''
+        if self.path=="/":
+            self.path="/index.html"
+            showContent = True
+        elif self.path=="/assets/js/threadsnake.js":
+            showContent = True
+        elif self.path=="/status":
+            message = '{"api": "OK"}'
+            showContent = True
+        elif "/dados" in self.path:
+            query = urlparse(self.path).query
+            if not query:
+                microSearch = "*"
+                microTotal = "1"
+                microTime = "5m"
+            else:
+                queryArray = dict(qc.split("=") for qc in query.split("&"))
+                microSearch = queryArray["search"]
+                microTotal = queryArray["total"]
+                microTime = queryArray["time"]
+
+            selectResult = searchDatabase(microSearch, microTotal, microTime, sqliteDatabase)
+            message = '{ "data":{ "array": ' + json.dumps(selectResult) + '} }'
+            showContent = True
+        else:
+            self.send_response(404)
+            self.send_header('Content-type','application/json')
+            self.end_headers()
+            self.wfile.write('{"not_found":"404"}')
+
+        if showContent == True:
+            if self.path=="/index.html":
+                f = open(curdir + sep + self.path)
+                self.send_response(200)
+                self.send_header('Content-type','text/html')
+                self.end_headers()
+                self.wfile.write(f.read())
+                f.close()
+            elif self.path=="/assets/js/threadsnake.js":
+                f = open(curdir + sep + self.path)
+                self.send_response(200)
+                self.send_header('Content-type','application/javascript')
+                self.end_headers()
+                self.wfile.write(f.read())
+                f.close()
+            else:
+                self.send_response(200)
+                self.send_header('Content-type','application/json')
+                self.end_headers()
+                self.wfile.write(message)
+        return
+
+def main():
+
+    # Test if there is another process
+
+    if os.path.isfile(pidFile) == True:
+        localPid = open(pidFile, 'r').read()
+        print 'proccess already running: ' + localPid
+        exit(1)
+
+    # Test if the portNumber is in use by another process
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    result = sock.connect_ex(('0.0.0.0', portNumber))
+    if result == 0:
+        print 'port ' + str(portNumber) + ' already in use'
+        exit(1)
+
+    try:
+        # Test if is there a SQLite database created
+        if not os.path.isfile(sqliteDatabase):
+            createDatabase()
+
+        logger.info("- - - ["+ time.strftime("%d/%b/%Y %H:%M:%S") + "] \"Execution Initiated\" - -")
+
+        # write pid file an start the server
+        pid = str(os.getpid())
+        tsPid = open(pidFile, 'w')
+        tsPid.write(pid)
+        tsPid.close()
+        microService = HTTPServer(('', portNumber), myMicroservice)
+        microService.serve_forever()
+
+    except KeyboardInterrupt:
+        microService.socket.close()
+        os.remove(pidFile)
+        logger.info("- - - ["+ time.strftime("%d/%b/%Y %H:%M:%S") + "] \"Execution Terminated\" - -")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except IOError:
+        print "Saindo abruptamente"
+        traceback.print_exc()
