@@ -1,6 +1,0 @@
-# threadsnake config
-TS_PORT_NUMBER: '8080'
-TS_LOG_FILE: 'threadsnake.log'
-TS_PIDFILE: '/var/run/threadsnake/threadsnake.pid'
-# sqlite config
-SL_DATABASE: 'threadsnake.db'
