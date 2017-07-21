@@ -70,7 +70,7 @@ scriptName =  os.path.basename(sys.argv[0])
 # Handle with config file
 
 try:
-    config = yaml.load(open('threadsnake.yaml'))
+    config = yaml.load(open('threadsnake.yml'))
     portNumber = int(config['TS_PORT_NUMBER'])
     logFile = config['TS_LOG_FILE']
     pidFile = config['TS_PIDFILE']
